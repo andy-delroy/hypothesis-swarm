@@ -38,20 +38,67 @@ from reward import Dataset, score_hypothesis, RewardBreakdown
 FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
 # Model IDs confirmed against this account's live /v1/models list on 2026-07-07.
 # Proposer/Critic/Refiner share deepseek-v4-pro (strongest reasoning, most critical
-# roles). Verifier deliberately uses a different model family (kimi-k2p5) so a
+# roles). Verifier deliberately uses a different model family (kimi-k2p6) so a
 # malformed-JSON failure in the deepseek family doesn't take down every role at once.
 MODEL_PROPOSER = os.environ.get("MODEL_PROPOSER", "accounts/fireworks/models/deepseek-v4-pro")
 MODEL_CRITIC   = os.environ.get("MODEL_CRITIC",   "accounts/fireworks/models/deepseek-v4-pro")
 MODEL_REFINER  = os.environ.get("MODEL_REFINER",  "accounts/fireworks/models/deepseek-v4-pro")
 MODEL_VERIFIER = os.environ.get("MODEL_VERIFIER", "accounts/fireworks/models/kimi-k2p6")
 
+# Per-role endpoint + credential overrides.
+# All default to the shared Fireworks URL/key, so existing behaviour is fully
+# unchanged unless you explicitly set these env vars.
+#
+# Hybrid setup (locally-trained Proposer + frozen Critic/Refiner/Verifier):
+#   After GRPO training, merge and serve the checkpoint (see serve_trained_proposer.sh),
+#   then set these three vars in your run_demo.py shell before running --label AFTER:
+#
+#       export PROPOSER_BASE_URL=http://localhost:8001/v1
+#       export PROPOSER_API_KEY=local     # vLLM ignores the key unless --api-key was
+#                                         # explicitly passed to `vllm serve`
+#       export MODEL_PROPOSER=concrete-swarm-proposer   # must match --served-model-name
+#
+#   Critic, Refiner, and Verifier are unaffected — their *_BASE_URL vars remain
+#   unset, so they continue routing through Fireworks as before.
+_FW_KEY = os.environ.get("FIREWORKS_API_KEY", "")   # shared fallback for all roles
 
-def _client():
+BASE_URL_PROPOSER = os.environ.get("PROPOSER_BASE_URL", FIREWORKS_BASE_URL)
+BASE_URL_CRITIC   = os.environ.get("CRITIC_BASE_URL",   FIREWORKS_BASE_URL)
+BASE_URL_REFINER  = os.environ.get("REFINER_BASE_URL",  FIREWORKS_BASE_URL)
+BASE_URL_VERIFIER = os.environ.get("VERIFIER_BASE_URL", FIREWORKS_BASE_URL)
+
+API_KEY_PROPOSER = os.environ.get("PROPOSER_API_KEY", _FW_KEY)
+API_KEY_CRITIC   = os.environ.get("CRITIC_API_KEY",   _FW_KEY)
+API_KEY_REFINER  = os.environ.get("REFINER_API_KEY",  _FW_KEY)
+API_KEY_VERIFIER = os.environ.get("VERIFIER_API_KEY", _FW_KEY)
+
+_ROLE_BASE_URLS: dict[str, str] = {
+    "proposer": BASE_URL_PROPOSER,
+    "critic":   BASE_URL_CRITIC,
+    "refiner":  BASE_URL_REFINER,
+    "verifier": BASE_URL_VERIFIER,
+}
+_ROLE_API_KEYS: dict[str, str] = {
+    "proposer": API_KEY_PROPOSER,
+    "critic":   API_KEY_CRITIC,
+    "refiner":  API_KEY_REFINER,
+    "verifier": API_KEY_VERIFIER,
+}
+
+
+def _client(role: str):
     from openai import OpenAI  # imported lazily so reward.py has no hard dep
-    return OpenAI(base_url=FIREWORKS_BASE_URL, api_key=os.environ["FIREWORKS_API_KEY"])
+    return OpenAI(
+        base_url=_ROLE_BASE_URLS.get(role, FIREWORKS_BASE_URL),
+        # Fall back to "local" if no key is configured — vLLM's OpenAI-compatible
+        # server accepts any non-empty string; Fireworks will 401 on a bad key,
+        # which is the right failure mode rather than an OpenAI SDK init error.
+        api_key=_ROLE_API_KEYS.get(role, _FW_KEY) or "local",
+    )
 
 
-def _call_once(model: str, system: str, user: str, temperature: float) -> str:
+def _call_once(model: str, system: str, user: str, temperature: float,
+               role: str = "unknown") -> str:
     # DeepSeek-V4-Pro defaults to thinking mode ON, which either leaks its
     # chain-of-thought reasoning into the content field or consumes the token
     # budget before the JSON answer is emitted — both break _extract_json().
@@ -60,7 +107,7 @@ def _call_once(model: str, system: str, user: str, temperature: float) -> str:
     extra_kwargs = (
         {"extra_body": {"thinking": {"type": "disabled"}}} if "deepseek" in model else {}
     )
-    resp = _client().chat.completions.create(
+    resp = _client(role).chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": system},
                   {"role": "user", "content": user}],
@@ -73,12 +120,12 @@ def _call_once(model: str, system: str, user: str, temperature: float) -> str:
 
 def call_llm(model: str, system: str, user: str, temperature: float = 0.7,
              role: str = "unknown") -> str:
-    content = _call_once(model, system, user, temperature)
+    content = _call_once(model, system, user, temperature, role)
     if not content.strip():
         retry_temp = min(temperature + 0.2, 1.0)
         print(f"[warn] {model} (role={role}): empty response, retrying at "
               f"temperature={retry_temp:.1f}", file=sys.stderr)
-        content = _call_once(model, system, user, retry_temp)
+        content = _call_once(model, system, user, retry_temp, role)
     if not content.strip():
         raise RuntimeError(
             f"Model {model!r} (role={role!r}) returned empty content on both the "
