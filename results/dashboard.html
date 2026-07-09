@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hypothesis Swarm &mdash; Concrete Compressive Strength</title>
+<style>
+/* ── tokens ── */
+:root {
+  --bg:           #0d0f12;
+  --surface:      #161a20;
+  --surface2:     #1d2230;
+  --border:       #262e3d;
+  --text:         #e4eaf5;
+  --muted:        #64748b;
+  --accent:       #f0a500;
+  --before-bar:   #4d7cfe;
+  --after-bar:    #34d399;
+  --pending-bg:   #0f1218;
+  --pending-fg:   #2e3a4e;
+  --code-bg:      #090b0e;
+  --delta-pos:    #34d399;
+  --delta-neg:    #f87171;
+}
+@media (prefers-color-scheme: light) { :root {
+  --bg:           #edf0f5;
+  --surface:      #ffffff;
+  --surface2:     #f4f6fb;
+  --border:       #cdd4e2;
+  --text:         #0f1523;
+  --muted:        #64748b;
+  --accent:       #b56f00;
+  --before-bar:   #2455d4;
+  --after-bar:    #0f9963;
+  --pending-bg:   #f4f6fb;
+  --pending-fg:   #aab4c8;
+  --code-bg:      #e5e9f2;
+  --delta-pos:    #0f9963;
+  --delta-neg:    #dc2626;
+}}
+:root[data-theme="dark"] {
+  --bg:           #0d0f12;
+  --surface:      #161a20;
+  --surface2:     #1d2230;
+  --border:       #262e3d;
+  --text:         #e4eaf5;
+  --muted:        #64748b;
+  --accent:       #f0a500;
+  --before-bar:   #4d7cfe;
+  --after-bar:    #34d399;
+  --pending-bg:   #0f1218;
+  --pending-fg:   #2e3a4e;
+  --code-bg:      #090b0e;
+  --delta-pos:    #34d399;
+  --delta-neg:    #f87171;
+}
+:root[data-theme="light"] {
+  --bg:           #edf0f5;
+  --surface:      #ffffff;
+  --surface2:     #f4f6fb;
+  --border:       #cdd4e2;
+  --text:         #0f1523;
+  --muted:        #64748b;
+  --accent:       #b56f00;
+  --before-bar:   #2455d4;
+  --after-bar:    #0f9963;
+  --pending-bg:   #f4f6fb;
+  --pending-fg:   #aab4c8;
+  --code-bg:      #e5e9f2;
+  --delta-pos:    #0f9963;
+  --delta-neg:    #dc2626;
+}
+
+/* ── reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.6;
+  min-height: 100vh;
+  padding: 2.5rem 1.5rem 5rem;
+}
+
+/* ── header ── */
+.site-header {
+  max-width: 1080px;
+  margin: 0 auto 2.25rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 1.5rem;
+}
+.site-eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+}
+.site-heading {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-wrap: balance;
+  margin-bottom: 1rem;
+}
+.dataset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+}
+.dataset-item { display: flex; flex-direction: column; gap: 0.15rem; }
+.dataset-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dataset-value {
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── main wrapper ── */
+.main {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* ── delta callout ── */
+.delta-callout {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.9rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--delta-pos);
+}
+.delta-callout.delta--neg { border-left-color: var(--delta-neg); }
+.delta-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--delta-pos);
+}
+.delta--neg .delta-value { color: var(--delta-neg); }
+.delta-sep  { color: var(--muted); }
+.delta-skill {
+  font-size: 1rem;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  color: var(--text);
+}
+.delta-pct { font-size: 0.85rem; color: var(--muted); }
+
+/* ── cards grid ── */
+.cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+@media (max-width: 680px) { .cards { grid-template-columns: 1fr; } }
+
+/* ── result card ── */
+.result-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.result-card--pending {
+  background: var(--pending-bg);
+  border-color: var(--border);
+  border-style: dashed;
+}
+
+.card-eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 700;
+}
+.result-card--pending .card-eyebrow { color: var(--pending-fg); }
+
+.card-reward {
+  font-size: 4rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  font-variant-numeric: tabular-nums;
+}
+.card-reward--pending { color: var(--pending-fg); }
+
+/* ── stats ── */
+.stats-row {
+  display: flex;
+  gap: 1.75rem;
+  flex-wrap: wrap;
+}
+.stat { display: flex; flex-direction: column; gap: 0.2rem; }
+.stat-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.stat-value {
+  font-size: 1.1rem;
+  font-weight: 600;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-divider { height: 1px; background: var(--border); }
+
+.card-claim {
+  font-size: 1.05rem;
+  font-style: italic;
+  line-height: 1.55;
+  text-wrap: balance;
+}
+.card-verdict {
+  font-size: 0.875rem;
+  color: var(--muted);
+  line-height: 1.65;
+}
+.selection-note {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  font-variant-numeric: tabular-nums;
+}
+.card-ts {
+  font-size: 0.68rem;
+  color: var(--pending-fg);
+  font-family: ui-monospace, monospace;
+}
+
+/* ── pending ── */
+.pending-msg {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--pending-fg);
+}
+.pending-sub {
+  font-size: 0.875rem;
+  color: var(--pending-fg);
+  line-height: 1.6;
+}
+.pending-steps {
+  list-style: decimal;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  color: var(--pending-fg);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.pending-steps code {
+  display: inline-block;
+  margin-top: 0.15rem;
+  background: var(--code-bg);
+  padding: 0.15em 0.5em;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  font-size: 0.8rem;
+}
+.pending-note {
+  font-size: 0.75rem;
+  color: var(--pending-fg);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/* ── chart section ── */
+.chart-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 1.75rem;
+}
+.chart-heading {
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+}
+
+/* ── SVG chart classes (use CSS vars so both themes work) ── */
+.chart-grid        { stroke: var(--border); fill: none; }
+.chart-tick        { fill: var(--muted); font-size: 11px; font-family: ui-monospace, monospace; }
+.chart-label       { fill: var(--muted); font-size: 12px; font-family: system-ui, sans-serif; }
+.chart-axis-label  { fill: var(--muted); font-size: 11px; font-family: system-ui, sans-serif; }
+.chart-val-before  { fill: var(--before-bar); font-size: 11px; font-family: ui-monospace, monospace; font-weight: 600; }
+.chart-val-after   { fill: var(--after-bar);  font-size: 11px; font-family: ui-monospace, monospace; font-weight: 600; }
+.chart-legend      { fill: var(--text); font-size: 12px; font-family: system-ui, sans-serif; }
+.bar-before        { fill: var(--before-bar); }
+.bar-after         { fill: var(--after-bar); }
+
+/* ── theme button ── */
+.theme-btn {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.07em;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+  font-family: system-ui, sans-serif;
+  text-transform: uppercase;
+}
+.theme-btn:hover { color: var(--text); border-color: var(--muted); }
+.theme-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+</style>
+</head>
+<body>
+<button class="theme-btn" id="theme-btn">Light mode</button>
+<header class="site-header">
+  <div class="site-eyebrow">Hypothesis Swarm &middot; Scientific Discovery</div>
+  <h1 class="site-heading">Concrete Compressive Strength</h1>
+  <div class="dataset-row">
+    <div class="dataset-item">
+      <span class="dataset-label">Task</span>
+      <span class="dataset-value">regression</span>
+    </div>
+    <div class="dataset-item">
+      <span class="dataset-label">Train rows</span>
+      <span class="dataset-value">824</span>
+    </div>
+    <div class="dataset-item">
+      <span class="dataset-label">Test rows</span>
+      <span class="dataset-value">206</span>
+    </div>
+    <div class="dataset-item">
+      <span class="dataset-label">Mean strength</span>
+      <span class="dataset-value">35.6 MPa</span>
+    </div>
+    <div class="dataset-item">
+      <span class="dataset-label">Strength range</span>
+      <span class="dataset-value">6.3 – 82.6 MPa</span>
+    </div>
+  </div>
+</header>
+<div class="main">
+  
+  <div class="cards">
+    <div class="result-card">
+  <div class="card-eyebrow">BEFORE</div>
+  <div class="card-reward">0.4572</div>
+  <div class="stats-row">
+    <div class="stat">
+      <span class="stat-label">skill</span>
+      <span class="stat-value">0.321</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">coverage</span>
+      <span class="stat-value">1.000</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">raw metric</span>
+      <span class="stat-value">0.321</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">format ok</span>
+      <span class="stat-value">1</span>
+    </div>
+  </div>
+  <div class="card-divider"></div>
+  <p class="card-claim">&ldquo;Strength is determined by the water-to-cementitious-materials ratio, where a lower ratio yields higher strength.&rdquo;</p>
+  <p class="card-verdict">The hypothesis asserts that concrete strength is inversely determined by the water-to-cementitious-materials ratio—lower ratios yield higher strength—and the prediction code faithfully implements this as a simple linear decay. On held-out data, this relationship achieved a normalized skill score of 0.321, which, while clearly above the trivial baseline of 0.0, indicates only modest predictive power and suggests that real-world strength depends on factors beyond this single ratio.</p>
+  <p class="selection-note">Best of 3 runs (run 1 chosen) &middot; all: [0.4572, 0.2000, 0.2571]</p>
+  <p class="card-ts">2026-07-08 12:01 UTC</p>
+</div>
+    <div class="result-card result-card--pending">
+  <div class="card-eyebrow">AFTER</div>
+  <div class="card-reward card-reward--pending">&mdash;</div>
+  <p class="pending-msg">Pending GRPO training</p>
+  <ol class="pending-steps">
+    <li>Run the swarm:<br><code>python run_demo.py --label AFTER</code></li>
+    <li>Regenerate this dashboard:<br><code>python dashboard_gen.py</code></li>
+  </ol>
+  <p class="pending-note">This file is a static snapshot &mdash; it won&rsquo;t update automatically.</p>
+</div>
+  </div>
+  <section class="chart-section">
+  <div class="chart-heading">Reward trajectory</div>
+  <svg viewBox="0 0 700 260" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-width:700px;margin:0 auto">
+<line x1="52" y1="167.2" x2="684" y2="167.2" class="chart-grid" stroke-width="1"/>
+<text x="47" y="171.2" text-anchor="end" class="chart-tick">0.2</text>
+<line x1="52" y1="132.4" x2="684" y2="132.4" class="chart-grid" stroke-width="1"/>
+<text x="47" y="136.4" text-anchor="end" class="chart-tick">0.4</text>
+<line x1="52" y1="97.6" x2="684" y2="97.6" class="chart-grid" stroke-width="1"/>
+<text x="47" y="101.6" text-anchor="end" class="chart-tick">0.6</text>
+<line x1="52" y1="62.8" x2="684" y2="62.8" class="chart-grid" stroke-width="1"/>
+<text x="47" y="66.8" text-anchor="end" class="chart-tick">0.8</text>
+<line x1="52" y1="28.0" x2="684" y2="28.0" class="chart-grid" stroke-width="1"/>
+<text x="47" y="32.0" text-anchor="end" class="chart-tick">1.0</text>
+<line x1="52" y1="202" x2="684" y2="202" class="chart-grid" stroke-width="1.5"/>
+<rect x="113.1" y="122.4" width="88.5" height="79.6" class="bar-before" rx="2"/>
+<text x="157.3" y="118.4" text-anchor="middle" class="chart-val-before">0.457</text>
+<text x="157.3" y="220.0" text-anchor="middle" class="chart-label">Propose best</text>
+<rect x="323.8" y="130.6" width="88.5" height="71.4" class="bar-before" rx="2"/>
+<text x="368.0" y="126.6" text-anchor="middle" class="chart-val-before">0.410</text>
+<text x="368.0" y="220.0" text-anchor="middle" class="chart-label">Refine</text>
+<rect x="534.4" y="122.4" width="88.5" height="79.6" class="bar-before" rx="2"/>
+<text x="578.7" y="118.4" text-anchor="middle" class="chart-val-before">0.457</text>
+<text x="578.7" y="220.0" text-anchor="middle" class="chart-label">Winner</text>
+<text x="16" y="115.0" text-anchor="middle" class="chart-axis-label" transform="rotate(-90 16.0 115.0)">reward</text>
+<rect x="612" y="34" width="10" height="10" class="bar-before" rx="2"/>
+<text x="626" y="43" class="chart-legend">BEFORE</text>
+</svg>
+</section>
+</div>
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn  = document.getElementById('theme-btn');
+  function applyTheme(t) {
+    root.setAttribute('data-theme', t);
+    btn.textContent = t === 'dark' ? 'Light mode' : 'Dark mode';
+  }
+  var stored = localStorage.getItem('theme');
+  if (stored) { applyTheme(stored); }
+  btn.addEventListener('click', function () {
+    var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    applyTheme(next);
+    localStorage.setItem('theme', next);
+  });
+})();
+
+</script>
+</body>
+</html>

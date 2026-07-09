@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+
+# Dataset cache (regeneratable via concrete_data.download_concrete_csv())
+data/*.csv
+data/*.xls
+data/*.xlsx
+
+# Generated training data (regeneratable via python verl_data_prep.py)
+data/*.parquet
+
+# Raw per-run result JSONs (regeneratable; dashboard.html is the kept artifact)
+results/*.json
+
+# Training checkpoints
+checkpoints/
+
+# Secrets — never commit a real key
+.env
+*.env
