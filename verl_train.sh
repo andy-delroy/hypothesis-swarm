@@ -117,6 +117,7 @@ python3 -m verl.trainer.main_ppo_sync \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.rollout.n=6 \
+    actor_rollout_ref.rollout.max_model_len=2048 \
     \
     custom_reward_function.path=verl_reward_adapter.py \
     custom_reward_function.name=compute_score \
