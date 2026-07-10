@@ -127,6 +127,10 @@ def generate_examples(
                 {"role": "user",   "content": user_text},
             ],
             "ground_truth": "",
+            "reward_model": {
+                "style":        "rule",
+                "ground_truth": "",
+            },
             "extra_info": {
                 "reward_eval_rows": eval_rows,
                 "train_y":          train_y,
@@ -179,6 +183,9 @@ def main() -> None:
     ei_check = first["extra_info"]   # now a native dict from parquet nested struct
     assert len(ei_check["reward_eval_rows"]) == 180
     assert len(ei_check["train_y"]) == len(data.train)
+    rm_check = dict(first["reward_model"])   # pyarrow struct scalar → plain dict
+    assert rm_check["style"] == "rule"
+    assert rm_check["ground_truth"] == ""
     print("\n  Parquet round-trip checks passed.")
 
     # ── Print one full example for visual inspection ──────────────────────────
