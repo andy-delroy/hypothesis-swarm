@@ -106,7 +106,7 @@ python3 -m verl.trainer.main_ppo_sync \
     \
     data.train_batch_size=16 \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     \
@@ -120,6 +120,7 @@ python3 -m verl.trainer.main_ppo_sync \
     actor_rollout_ref.rollout.load_format=safetensors \
     actor_rollout_ref.rollout.n=6 \
     actor_rollout_ref.rollout.max_model_len=2048 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
     \
     custom_reward_function.path=verl_reward_adapter.py \
     custom_reward_function.name=compute_score \
