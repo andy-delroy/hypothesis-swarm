@@ -120,11 +120,6 @@ def generate_examples(
         schema      = _schema_str(data.task_type, target, feature_names, prompt_rows)
         user_text   = PROPOSER_TRAIN_USER.format(schema=schema, target=target)
 
-        extra_info = json.dumps({
-            "reward_eval_rows": eval_rows,
-            "train_y":          train_y,
-        })
-
         examples.append({
             "data_source":  "concrete_swarm",
             "prompt": [
@@ -132,7 +127,10 @@ def generate_examples(
                 {"role": "user",   "content": user_text},
             ],
             "ground_truth": "",
-            "extra_info":   extra_info,
+            "extra_info": {
+                "reward_eval_rows": eval_rows,
+                "train_y":          train_y,
+            },
         })
 
     return examples
@@ -178,14 +176,14 @@ def main() -> None:
     assert len(prompt_rt) == 2
     assert prompt_rt[0]["role"] == "system"
     assert prompt_rt[1]["role"] == "user"
-    ei_check = json.loads(first["extra_info"])
+    ei_check = first["extra_info"]   # now a native dict from parquet nested struct
     assert len(ei_check["reward_eval_rows"]) == 180
     assert len(ei_check["train_y"]) == len(data.train)
     print("\n  Parquet round-trip checks passed.")
 
     # ── Print one full example for visual inspection ──────────────────────────
     ex = train_examples[0]
-    ei = json.loads(ex["extra_info"])
+    ei = ex["extra_info"]   # plain dict — no json.loads needed
 
     print("\n" + "=" * 70)
     print("SAMPLE EXAMPLE  (train[0])")

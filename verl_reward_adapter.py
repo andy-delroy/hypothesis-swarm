@@ -20,7 +20,7 @@ Intentional design notes
   produced and the run should halt. Here, it just means that rollout gets zero
   reward and the other rollouts in the group proceed normally.
 
-extra_info schema (JSON string):
+extra_info schema (native dict — parquet nested struct, NOT a JSON string):
   {
     "reward_eval_rows": list[dict],   # full rows (features + "strength") from train
     "train_y":          list[float],  # ALL training-set strength values,
@@ -105,11 +105,20 @@ def compute_score(
     except Exception:
         return 0.0
 
-    # ── 2. Deserialise extra_info ────────────────────────────────────────────
+    # ── 2. Unpack extra_info ─────────────────────────────────────────────────
     try:
-        ei = json.loads(extra_info) if isinstance(extra_info, str) else (extra_info or {})
-        reward_eval_rows = ei["reward_eval_rows"]   # list[dict]  (features + "strength")
-        train_y_values   = ei["train_y"]            # list[float] (target values only)
+        # extra_info is now a native dict from the parquet nested struct column.
+        # Defensive: pyarrow may return a dict-like struct scalar rather than a
+        # plain dict (same quirk seen with the "prompt" field) — dict() normalises
+        # both. json.loads fallback retained for the legacy JSON-string format.
+        if isinstance(extra_info, str):
+            ei = json.loads(extra_info)
+        else:
+            ei = dict(extra_info) if extra_info is not None else {}
+        # list() converts numpy/pyarrow arrays to plain Python lists if pyarrow
+        # deserialized the list<...> fields as arrays instead of lists.
+        reward_eval_rows = list(ei["reward_eval_rows"])   # list[dict]  features + "strength"
+        train_y_values   = list(ei["train_y"])            # list[float] target values
     except Exception:
         return 0.0
 
@@ -168,7 +177,7 @@ if __name__ == "__main__":
     train_y   = [r["strength"] for r in all_rows[:160]]
     eval_rows = all_rows[160:]
 
-    extra_info = json.dumps({"reward_eval_rows": eval_rows, "train_y": train_y})
+    extra_info = {"reward_eval_rows": eval_rows, "train_y": train_y}
 
     # ── Test 1: valid w/c-ratio hypothesis (should score > 0) ────────────────
     valid_solution = json.dumps({
