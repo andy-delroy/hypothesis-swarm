@@ -717,7 +717,7 @@ def main() -> None:
                         help="Path to BEFORE result JSON (required)")
     parser.add_argument("--after", default="results/latest_AFTER.json",
                         help="Path to AFTER result JSON (optional; placeholder shown if missing)")
-    parser.add_argument("--out", default="results/dashboard.html",
+    parser.add_argument("--out", default="docs/dashboard.html",
                         help="Output path for the HTML file")
     args = parser.parse_args()
 

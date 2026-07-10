@@ -26,7 +26,7 @@ plain-English discovered hypothesis, is the demo.
 | `agents.py` | Four roles (Proposer → Critic → Refiner → Verifier) and the `run_swarm()` loop. Per-role endpoint overrides let the Proposer point at a local vLLM server post-training while the other three stay on Fireworks. |
 | `concrete_data.py` | Downloads and caches the UCI dataset, returns a `reward.Dataset` with an 80/20 train/test split. |
 | `run_demo.py` | End-to-end harness. Runs offline (mock LLM) without an API key; runs the real four-agent swarm when `FIREWORKS_API_KEY` is set. Saves per-run JSON and picks the best-of-N result. |
-| `dashboard_gen.py` | Reads `results/latest_BEFORE.json` (and optionally `latest_AFTER.json`) and writes a self-contained offline HTML dashboard to `results/dashboard.html`. |
+| `dashboard_gen.py` | Reads `results/latest_BEFORE.json` (and optionally `latest_AFTER.json`) and writes a self-contained HTML dashboard to `docs/dashboard.html` (served via GitHub Pages). Raw per-run JSON files land in `results/` (git-ignored). |
 | `verl_reward_adapter.py` | verl-compatible `compute_score()` entry point for GRPO training. Self-contained — no Fireworks dependency. |
 | `verl_data_prep.py` | Generates `data/verl_train.parquet` (300 examples) and `data/verl_val.parquet` (40 examples) for verl. |
 | `verl_train.sh` | GRPO training launch script (Qwen3-4B + LoRA, 4-hour session budget, auto-resume). |
@@ -92,7 +92,7 @@ Model defaults (all overridable via env vars — see `agents.py`):
 
 ```bash
 python dashboard_gen.py
-open results/dashboard.html     # or xdg-open on Linux
+open docs/dashboard.html     # or xdg-open on Linux
 ```
 
 After GRPO training, run `python run_demo.py --label AFTER` and then
