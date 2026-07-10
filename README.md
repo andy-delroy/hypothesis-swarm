@@ -33,6 +33,7 @@ plain-English discovered hypothesis, is the demo.
 | `checkpoint_status.sh` | Lists saved `global_step_N` checkpoints and prints the latest + its mtime. |
 | `serve_trained_proposer.sh` | Merges a LoRA checkpoint via `verl.model_merger` and serves it with vLLM on port 8001. |
 | `test_reward.py` | Unit checks that the reward rewards the true rule, gives partial credit to near-misses, and zeroes constant predictors. |
+| `pod_evidence/` | Screenshots and logs proving real AMD GPU usage during GRPO training, for Track 3 compliance (`rocm-smi`, full training log, checkpoint status captures, notebook screenshot). |
 
 ---
 
