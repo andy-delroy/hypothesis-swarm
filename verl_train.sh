@@ -124,6 +124,8 @@ python3 -m verl.trainer.main_ppo_sync \
     trainer.save_freq=10 \
     trainer.default_local_dir=checkpoints/concrete_swarm_proposer \
     trainer.resume_mode=auto \
+    trainer.n_gpus_per_node=1 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     "trainer.logger=${TRAINER_LOGGER}"
 
 # Notes on tuning knobs:
