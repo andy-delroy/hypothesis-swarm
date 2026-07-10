@@ -22,7 +22,7 @@
 #
 # 2. CONFIRM VERL ENTRY POINT
 #    verl's Hydra-based trainer must be importable:
-#       python3 -m verl.trainer.main_ppo --help
+#       python3 -m verl.trainer.main_ppo_sync --help
 #    Should print Hydra config options. If it errors, check your verl install.
 #
 # 3. CONFIRM RAY VERSION — determines which device-isolation env var to use:
@@ -40,6 +40,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
+
+# Activate the pod venv — ray/torch/vllm/verl all live here, not in system Python,
+# and it is not active by default in a fresh terminal on this pod.
+source /opt/venv/bin/activate
 
 # =============================================================================
 # FILL IN AFTER PRE-FLIGHT CHECK 1
@@ -85,10 +89,13 @@ export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
 # safe to set to 0 or remove entirely if you encounter vLLM stability issues.
 export VLLM_ROCM_USE_AITER=1
 
+# Suppress HuggingFace tokenizer fork-safety warning — optional, harmless.
+export TOKENIZERS_PARALLELISM=false
+
 # =============================================================================
 # LAUNCH
 # =============================================================================
-python3 -m verl.trainer.main_ppo \
+python3 -m verl.trainer.main_ppo_sync \
     \
     algorithm.adv_estimator=grpo \
     \
@@ -110,6 +117,8 @@ python3 -m verl.trainer.main_ppo \
     \
     custom_reward_function.path=verl_reward_adapter.py \
     custom_reward_function.name=compute_score \
+    reward.custom_reward_function.path=verl_reward_adapter.py \
+    reward.custom_reward_function.name=compute_score \
     \
     trainer.total_epochs=50 \
     trainer.save_freq=10 \
