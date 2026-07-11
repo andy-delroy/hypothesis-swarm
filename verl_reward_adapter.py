@@ -144,6 +144,13 @@ def compute_score(
             train=fake_train,
             test=reward_eval_rows,
         )
+        # Strip harmless self-imports: math/statistics are already provided as
+        # globals inside reward.py's sandbox, but the sandbox's __import__ is
+        # absent from the whitelist, so a bare "import math" or "import statistics"
+        # line would otherwise raise and make compile_predict() silently return
+        # None. Other imports (e.g. numpy) are intentionally left to keep failing.
+        predict_code = re.sub(r'^\s*import\s+(math|statistics)\s*$', '', predict_code,
+                               flags=re.MULTILINE)
         result = score_hypothesis(predict_code, dataset)
         if result.total == 0.0:
             print(f"[reward-debug] score_hypothesis returned 0.0 without raising. "
@@ -235,10 +242,23 @@ if __name__ == "__main__":
     s5 = compute_score("concrete_swarm", fenced_solution, "", extra_info)
     print(f"[5] Fenced predict_code           : {s5:.4f}  (expect > 0.0, fence stripped)")
 
+    # ── Test 6: bare "import math" line (should be stripped, then compile) ────
+    import_solution = json.dumps({
+        "claim": "Strength grows with the square root of age.",
+        "predict_code": (
+            "import math\n"
+            "def predict(row):\n"
+            "    return min(60.0, 10.0 * math.sqrt(row['age']))"
+        ),
+    })
+    s6 = compute_score("concrete_swarm", import_solution, "", extra_info)
+    print(f"[6] Bare 'import math' line       : {s6:.4f}  (expect > 0.0, import stripped)")
+
     print()
     assert s1 > 0.0,   "valid hypothesis must score > 0"
     assert s2 == 0.0,  "malformed JSON must score 0.0"
     assert s3 == 0.0,  "missing predict_code must score 0.0"
     assert s4 == 0.0,  "crashing code must score 0.0"
     assert s5 > 0.0,   "fenced code must be stripped and scored"
+    assert s6 > 0.0,   "bare 'import math' line must be stripped and scored"
     print("All assertions passed.")

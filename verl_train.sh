@@ -102,7 +102,7 @@ python3 -m verl.trainer.main_ppo_sync \
     data.train_files=data/verl_train.parquet \
     data.val_files=data/verl_val.parquet \
     data.max_prompt_length=2048 \
-    data.max_response_length=512 \
+    data.max_response_length=768 \
     \
     data.train_batch_size=16 \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
