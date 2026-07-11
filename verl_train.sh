@@ -88,7 +88,6 @@ export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=1
 # Provides measurable throughput gains on MI300X with no correctness risk, but
 # safe to set to 0 or remove entirely if you encounter vLLM stability issues.
 export VLLM_ROCM_USE_AITER=1
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Suppress HuggingFace tokenizer fork-safety warning — optional, harmless.
 export TOKENIZERS_PARALLELISM=false
@@ -107,7 +106,7 @@ python3 -m verl.trainer.main_ppo_sync \
     \
     data.train_batch_size=16 \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     \
