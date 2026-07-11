@@ -237,6 +237,53 @@ def render_placeholder_card(label: str) -> str:
 </div>"""
 
 
+def render_debate_section(run: dict, label: str) -> str:
+    debate = run.get("debate")
+    if not debate:
+        return ""
+
+    orig           = debate.get("original_proposal", {})
+    refinement     = debate.get("refinement", {})
+    critique_text  = debate.get("critique", "")
+    final_verdict  = debate.get("final_verdict", "")
+    winner_verdict = run.get("winner", {}).get("verdict", "")
+
+    if final_verdict and final_verdict == winner_verdict:
+        verdict_html = (
+            f'<p class="card-verdict">Same as the verdict shown above in the '
+            f'{esc(label)} card.</p>'
+        )
+    else:
+        verdict_html = f'<p class="card-verdict">{esc(final_verdict)}</p>'
+
+    return f"""\
+<details class="debate-block">
+  <summary class="debate-summary">{esc(label)} &middot; See the full reasoning chain</summary>
+  <div class="debate-content">
+    <div class="debate-stage">
+      <div class="stat-label">Original proposal <span class="debate-tag">(before critique)</span></div>
+      <p class="card-claim">&ldquo;{esc(orig.get('claim', ''))}&rdquo;</p>
+    </div>
+    <div class="card-divider"></div>
+    <div class="debate-stage">
+      <div class="stat-label">Critique</div>
+      <p class="card-verdict">{esc(critique_text)}</p>
+    </div>
+    <div class="card-divider"></div>
+    <div class="debate-stage">
+      <div class="stat-label">Refinement</div>
+      <p class="card-claim">&ldquo;{esc(refinement.get('claim', ''))}&rdquo;</p>
+      <p class="card-verdict">{esc(refinement.get('what_changed', ''))}</p>
+    </div>
+    <div class="card-divider"></div>
+    <div class="debate-stage">
+      <div class="stat-label">Final verdict</div>
+      {verdict_html}
+    </div>
+  </div>
+</details>"""
+
+
 def render_delta(before: dict, after: dict) -> str:
     b_total = before["winner"]["reward"]["total"]
     a_total = after["winner"]["reward"]["total"]
@@ -567,6 +614,41 @@ body {
 .bar-before        { fill: var(--before-bar); }
 .bar-after         { fill: var(--after-bar); }
 
+/* ── debate / reasoning chain ── */
+.debate-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.debate-summary {
+  cursor: pointer;
+  padding: 1.25rem 1.75rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+.debate-summary:hover { color: var(--text); }
+.debate-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.debate-block[open] .debate-summary { border-bottom: 1px solid var(--border); }
+.debate-content {
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.debate-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.debate-tag {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  color: var(--muted);
+}
+
 /* ── theme button ── */
 .theme-btn {
   position: fixed;
@@ -670,6 +752,11 @@ def render_html(before: dict, after: dict | None, out_path: str) -> None:
   {chart_svg}
 </section>"""
 
+    debate_html = "\n".join(filter(None, [
+        render_debate_section(before, "BEFORE"),
+        render_debate_section(after, "AFTER") if after else "",
+    ]))
+
     html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -690,6 +777,7 @@ def render_html(before: dict, after: dict | None, out_path: str) -> None:
     {after_card_html}
   </div>
   {chart_section}
+  {debate_html}
 </div>
 <script>
 {JS}

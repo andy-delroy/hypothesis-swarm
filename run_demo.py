@@ -188,8 +188,7 @@ def main():
     for i in range(1, n_runs + 1):
         print(f"\n--- run {i}/{n_runs} ---")
         run_ts = datetime.now(timezone.utc)
-        result = agents.run_swarm(data, k=4, verbose=True)
-        w, best_i, refined_i = result.winner, result.best, result.refined
+        w = agents.run_swarm(data, k=4, verbose=True)
 
         run_dict = {
             "label":     label,
@@ -198,9 +197,10 @@ def main():
             "dataset":   dataset_block,
             "models":    models_block,
             "winner":    w.to_dict(),
+            "debate":    w.debate,
             "trajectory": [
-                {"stage": "propose_best", "reward": round(best_i.reward.total, 4)},
-                {"stage": "refine",       "reward": round(refined_i.reward.total, 4)},
+                {"stage": "propose_best", "reward": round(w.debate["original_proposal"]["reward"], 4)},
+                {"stage": "refine",       "reward": round(w.debate["refinement"]["reward"], 4)},
                 {"stage": "winner",       "reward": round(w.reward.total, 4)},
             ],
         }

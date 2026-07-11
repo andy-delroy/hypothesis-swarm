@@ -308,6 +308,41 @@ body {
 .bar-before        { fill: var(--before-bar); }
 .bar-after         { fill: var(--after-bar); }
 
+/* ── debate / reasoning chain ── */
+.debate-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.debate-summary {
+  cursor: pointer;
+  padding: 1.25rem 1.75rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+.debate-summary:hover { color: var(--text); }
+.debate-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.debate-block[open] .debate-summary { border-bottom: 1px solid var(--border); }
+.debate-content {
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.debate-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.debate-tag {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  color: var(--muted);
+}
+
 /* ── theme button ── */
 .theme-btn {
   position: fixed;
@@ -363,11 +398,11 @@ body {
   <div class="cards">
     <div class="result-card">
   <div class="card-eyebrow">BEFORE</div>
-  <div class="card-reward">0.4572</div>
+  <div class="card-reward">0.4414</div>
   <div class="stats-row">
     <div class="stat">
       <span class="stat-label">skill</span>
-      <span class="stat-value">0.321</span>
+      <span class="stat-value">0.302</span>
     </div>
     <div class="stat">
       <span class="stat-label">coverage</span>
@@ -375,7 +410,7 @@ body {
     </div>
     <div class="stat">
       <span class="stat-label">raw metric</span>
-      <span class="stat-value">0.321</span>
+      <span class="stat-value">0.302</span>
     </div>
     <div class="stat">
       <span class="stat-label">format ok</span>
@@ -383,10 +418,10 @@ body {
     </div>
   </div>
   <div class="card-divider"></div>
-  <p class="card-claim">&ldquo;Strength is determined by the water-to-cementitious-materials ratio, where a lower ratio yields higher strength.&rdquo;</p>
-  <p class="card-verdict">The hypothesis asserts that concrete strength is inversely determined by the water-to-cementitious-materials ratio—lower ratios yield higher strength—and the prediction code faithfully implements this as a simple linear decay. On held-out data, this relationship achieved a normalized skill score of 0.321, which, while clearly above the trivial baseline of 0.0, indicates only modest predictive power and suggests that real-world strength depends on factors beyond this single ratio.</p>
-  <p class="selection-note">Best of 3 runs (run 1 chosen) &middot; all: [0.4572, 0.2000, 0.2571]</p>
-  <p class="card-ts">2026-07-08 12:01 UTC</p>
+  <p class="card-claim">&ldquo;Strength grows with curing age because hydration continues over time; the gain is approximately proportional to the logarithm of age in days.&rdquo;</p>
+  <p class="card-verdict">The hypothesis predicts MPa strength from the water/cement ratio and curing age via an Abrams-style formula with a logarithmic age term. On held-out data the code faithfully implements this claim, and the measured skill score reflects real predictive signal above the mean-predictor baseline.</p>
+  <p class="selection-note">Best of 1 runs (run 1 chosen) &middot; all: [0.4414]</p>
+  <p class="card-ts">2026-07-11 09:37 UTC</p>
 </div>
     <div class="result-card result-card--pending">
   <div class="card-eyebrow">AFTER</div>
@@ -413,20 +448,45 @@ body {
 <line x1="52" y1="28.0" x2="684" y2="28.0" class="chart-grid" stroke-width="1"/>
 <text x="47" y="32.0" text-anchor="end" class="chart-tick">1.0</text>
 <line x1="52" y1="202" x2="684" y2="202" class="chart-grid" stroke-width="1.5"/>
-<rect x="113.1" y="122.4" width="88.5" height="79.6" class="bar-before" rx="2"/>
-<text x="157.3" y="118.4" text-anchor="middle" class="chart-val-before">0.457</text>
+<rect x="113.1" y="125.2" width="88.5" height="76.8" class="bar-before" rx="2"/>
+<text x="157.3" y="121.2" text-anchor="middle" class="chart-val-before">0.441</text>
 <text x="157.3" y="220.0" text-anchor="middle" class="chart-label">Propose best</text>
-<rect x="323.8" y="130.6" width="88.5" height="71.4" class="bar-before" rx="2"/>
-<text x="368.0" y="126.6" text-anchor="middle" class="chart-val-before">0.410</text>
+<rect x="323.8" y="167.2" width="88.5" height="34.8" class="bar-before" rx="2"/>
+<text x="368.0" y="163.2" text-anchor="middle" class="chart-val-before">0.200</text>
 <text x="368.0" y="220.0" text-anchor="middle" class="chart-label">Refine</text>
-<rect x="534.4" y="122.4" width="88.5" height="79.6" class="bar-before" rx="2"/>
-<text x="578.7" y="118.4" text-anchor="middle" class="chart-val-before">0.457</text>
+<rect x="534.4" y="125.2" width="88.5" height="76.8" class="bar-before" rx="2"/>
+<text x="578.7" y="121.2" text-anchor="middle" class="chart-val-before">0.441</text>
 <text x="578.7" y="220.0" text-anchor="middle" class="chart-label">Winner</text>
 <text x="16" y="115.0" text-anchor="middle" class="chart-axis-label" transform="rotate(-90 16.0 115.0)">reward</text>
 <rect x="612" y="34" width="10" height="10" class="bar-before" rx="2"/>
 <text x="626" y="43" class="chart-legend">BEFORE</text>
 </svg>
 </section>
+  <details class="debate-block">
+  <summary class="debate-summary">BEFORE &middot; See the full reasoning chain</summary>
+  <div class="debate-content">
+    <div class="debate-stage">
+      <div class="stat-label">Original proposal <span class="debate-tag">(before critique)</span></div>
+      <p class="card-claim">&ldquo;Strength grows with curing age because hydration continues over time; the gain is approximately proportional to the logarithm of age in days.&rdquo;</p>
+    </div>
+    <div class="card-divider"></div>
+    <div class="debate-stage">
+      <div class="stat-label">Critique</div>
+      <p class="card-verdict">The water/cement hypothesis captures the dominant Abrams&#x27;-law trend but ignores curing age entirely — the same w/c mix at 3 days vs 90 days can differ by 20+ MPa. It will systematically under-predict mature concrete and over-predict very young concrete. The 55 MPa intercept and slope were also eyeballed, not calibrated, so the absolute scale may be off.</p>
+    </div>
+    <div class="card-divider"></div>
+    <div class="debate-stage">
+      <div class="stat-label">Refinement</div>
+      <p class="card-claim">&ldquo;Concrete strength is jointly determined by the water/cement ratio and curing age: low w/c gives higher potential strength, and the log-of-age term captures ongoing hydration gains over time.&rdquo;</p>
+      <p class="card-verdict">added a log(age+1) multiplier normalized to 28 days (standard curing), so early-age specimens are scaled down and mature ones are scaled up</p>
+    </div>
+    <div class="card-divider"></div>
+    <div class="debate-stage">
+      <div class="stat-label">Final verdict</div>
+      <p class="card-verdict">Same as the verdict shown above in the BEFORE card.</p>
+    </div>
+  </div>
+</details>
 </div>
 <script>
 (function () {

@@ -28,7 +28,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import Any
 
 from reward import Dataset, score_hypothesis, RewardBreakdown
 
@@ -277,6 +277,8 @@ class Candidate:
     reward: RewardBreakdown | None = None
     critique: str = ""
     verdict: str = ""
+    what_changed: str = ""
+    debate: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -286,12 +288,6 @@ class Candidate:
             "verdict": self.verdict,
             "reward": self.reward.as_dict() if self.reward is not None else None,
         }
-
-
-class SwarmResult(NamedTuple):
-    winner: Candidate
-    best: Candidate    # best raw proposal before refinement
-    refined: Candidate  # refiner's output (may have lower reward than best)
 
 
 def propose(data: Dataset, k: int = 4) -> list[Candidate]:
@@ -321,7 +317,9 @@ def refine(cand: Candidate, critique_text: str, failure: str, data: Dataset) -> 
         schema=schema_str(data), claim=cand.claim, predict_code=cand.predict_code,
         critique=critique_text, most_likely_failure=failure), role="refiner")
     j = _extract_json(reply)
-    return Candidate(j["claim"], j["predict_code"])
+    cand = Candidate(j["claim"], j["predict_code"])
+    cand.what_changed = j.get("what_changed", "")
+    return cand
 
 
 def verify(cand: Candidate, data: Dataset) -> str:
@@ -337,7 +335,7 @@ def verify(cand: Candidate, data: Dataset) -> str:
         return "(verifier response could not be parsed — see stderr)"
 
 
-def run_swarm(data: Dataset, k: int = 4, verbose: bool = True) -> SwarmResult:
+def run_swarm(data: Dataset, k: int = 4, verbose: bool = True) -> Candidate:
     """One full propose -> critique -> refine -> verify cycle. Returns the winner.
 
     This is what you run for the frozen-baseline demo. The winner's reward.total is
@@ -362,4 +360,19 @@ def run_swarm(data: Dataset, k: int = 4, verbose: bool = True) -> SwarmResult:
     winner.verdict = verify(winner, data)
     if verbose:
         print(f"[verify ] {winner.verdict}")
-    return SwarmResult(winner=winner, best=best, refined=refined)
+    winner.debate = {
+        "original_proposal": {
+            "claim": best.claim,
+            "predict_code": best.predict_code,
+            "reward": best.reward.total,
+        },
+        "critique": crit,
+        "refinement": {
+            "claim": refined.claim,
+            "predict_code": refined.predict_code,
+            "what_changed": refined.what_changed,
+            "reward": refined.reward.total,
+        },
+        "final_verdict": winner.verdict,
+    }
+    return winner
