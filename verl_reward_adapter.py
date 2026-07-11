@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 
 
 # ---------------------------------------------------------------------------
@@ -101,8 +102,12 @@ def compute_score(
         parsed      = _extract_json(solution_str)
         predict_code = parsed.get("predict_code", "")
         if not isinstance(predict_code, str) or not predict_code.strip():
+            print(f"[reward-debug] predict_code missing/empty. solution_str[:300]="
+                  f"{repr(solution_str[:300])}", file=sys.stderr)
             return 0.0
-    except Exception:
+    except Exception as exc:
+        print(f"[reward-debug] JSON parse failed: {exc}. solution_str[:300]="
+              f"{repr(solution_str[:300])}", file=sys.stderr)
         return 0.0
 
     # ── 2. Unpack extra_info ─────────────────────────────────────────────────
@@ -119,7 +124,9 @@ def compute_score(
         # deserialized the list<...> fields as arrays instead of lists.
         reward_eval_rows = list(ei["reward_eval_rows"])   # list[dict]  features + "strength"
         train_y_values   = list(ei["train_y"])            # list[float] target values
-    except Exception:
+    except Exception as exc:
+        print(f"[reward-debug] extra_info unpacking failed: {exc}. solution_str[:300]="
+              f"{repr(solution_str[:300])}", file=sys.stderr)
         return 0.0
 
     # ── 3. Score via reward.py ───────────────────────────────────────────────
@@ -137,8 +144,16 @@ def compute_score(
             train=fake_train,
             test=reward_eval_rows,
         )
-        return score_hypothesis(predict_code, dataset).total
-    except Exception:
+        result = score_hypothesis(predict_code, dataset)
+        if result.total == 0.0:
+            print(f"[reward-debug] score_hypothesis returned 0.0 without raising. "
+                  f"coverage={getattr(result, 'coverage', None)} "
+                  f"degenerate={getattr(result, 'degenerate', None)} "
+                  f"skill={getattr(result, 'skill', None)}", file=sys.stderr)
+        return result.total
+    except Exception as exc:
+        print(f"[reward-debug] execution failed: {exc}. solution_str[:300]="
+              f"{repr(solution_str[:300])}", file=sys.stderr)
         return 0.0
 
 
