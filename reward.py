@@ -28,10 +28,12 @@ container / gVisor / firejail sandbox. Do not skip that step.
 
 from __future__ import annotations
 
+import concurrent.futures
 import math
 import re
 import signal
 import statistics
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
@@ -98,27 +100,58 @@ def compile_predict(predict_code: str) -> Callable[[dict], Any] | None:
     return fn if callable(fn) else None
 
 
+def _predict_loop(fn: Callable[[dict], Any], rows: list[dict], preds: list[Any]) -> None:
+    """Append one prediction per row into preds, in place. None marks a failed row."""
+    for row in rows:
+        try:
+            preds.append(fn(dict(row)))
+        except _Timeout:
+            raise
+        except Exception:
+            preds.append(None)
+
+
 def _run_predictions(fn: Callable[[dict], Any], rows: list[dict]) -> list[Any]:
     """Run fn over rows with a single wall-clock timeout. None marks a failed row."""
     preds: list[Any] = []
-    use_alarm = hasattr(signal, "SIGALRM")
+    # signal.alarm()/SIGALRM only works in the main thread of the main
+    # interpreter — it raises ValueError otherwise (e.g. inside Ray worker
+    # threads). Fall back to a ThreadPoolExecutor-based timeout there, same
+    # as the existing non-POSIX (no SIGALRM) fallback below.
+    use_alarm = (
+        hasattr(signal, "SIGALRM")
+        and threading.current_thread() is threading.main_thread()
+    )
     if use_alarm:
         signal.signal(signal.SIGALRM, _timeout_handler)
         signal.setitimer(signal.ITIMER_REAL, PREDICT_TIMEOUT_SEC)
-    try:
-        for row in rows:
-            try:
-                preds.append(fn(dict(row)))
-            except _Timeout:
-                raise
-            except Exception:
-                preds.append(None)
-    except _Timeout:
-        # ran out of time — pad the rest as failures
-        preds.extend([None] * (len(rows) - len(preds)))
-    finally:
-        if use_alarm:
+        try:
+            _predict_loop(fn, rows, preds)
+        except _Timeout:
+            # ran out of time — pad the rest as failures
+            preds.extend([None] * (len(rows) - len(preds)))
+        finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
+    else:
+        # Unlike the signal path (which aborts _predict_loop immediately via an
+        # injected exception), Python cannot force-stop a running thread: on
+        # timeout below, _predict_loop keeps calling fn() for the remaining
+        # rows to its own natural completion in the background, even though
+        # we've already stopped waiting and moved on.
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(_predict_loop, fn, rows, preds)
+        try:
+            future.result(timeout=PREDICT_TIMEOUT_SEC)
+        except concurrent.futures.TimeoutError:
+            # Ran out of time. The worker thread can't be killed and may still
+            # be appending to `preds` in the background, so pad off a snapshot
+            # rather than mutating the shared list — avoids a race that could
+            # leave preds longer than rows.
+            snapshot = list(preds)
+            snapshot.extend([None] * (len(rows) - len(snapshot)))
+            preds = snapshot
+        finally:
+            executor.shutdown(wait=False)
     return preds
 
 
