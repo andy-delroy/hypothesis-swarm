@@ -107,8 +107,8 @@ python3 -m verl.trainer.main_ppo_sync \
     data.train_batch_size=16 \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     \
     actor_rollout_ref.model.path="${QWEN3_MODEL_PATH}" \
     \
