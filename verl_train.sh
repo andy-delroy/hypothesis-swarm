@@ -51,7 +51,7 @@ fi
 # =============================================================================
 # FILL IN AFTER PRE-FLIGHT CHECK 1
 # =============================================================================
-QWEN3_MODEL_PATH="/workspace/models/Qwen3-4B-Instruct-2507"
+QWEN3_MODEL_PATH="Qwen/Qwen3-4B-Instruct-2507"
 # Example values:
 #   QWEN3_MODEL_PATH="/workspace/models/Qwen3-4B"
 #   QWEN3_MODEL_PATH="Qwen/Qwen3-4B"    # HF Hub id — downloads on first run
