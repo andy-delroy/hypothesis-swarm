@@ -41,9 +41,12 @@
 
 set -euo pipefail
 
-# Activate the pod venv — ray/torch/vllm/verl all live here, not in system Python,
-# and it is not active by default in a fresh terminal on this pod.
-source /opt/venv/bin/activate
+# Activate the pod venv if present (notebook-pod layout). This droplet's
+# quick-start image installs torch/vllm/verl directly into the system
+# python3 — no venv exists here, so this block is a no-op and that is expected.
+if [[ -f /opt/venv/bin/activate ]]; then
+    source /opt/venv/bin/activate
+fi
 
 # =============================================================================
 # FILL IN AFTER PRE-FLIGHT CHECK 1
