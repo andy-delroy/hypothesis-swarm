@@ -181,13 +181,18 @@ A hypothesis is a claim about the UNDERLYING STRUCTURE relating the features to 
 
 For each hypothesis you output BOTH:
   1. "claim": one plain-English sentence a domain expert could read and judge.
-  2. "predict_code": Python defining `predict(row: dict) -> value` that operationalizes
-     the claim. It receives a dict of feature values (NO target) and returns the predicted
-     target. You may use `math` and `statistics`. No imports, no I/O, no data lookups.
+  2. "predict_code": Python defining `features(row: dict) -> dict[str, float]` that
+     operationalizes the claim as one or more NAMED engineered features (e.g.
+     {"water_binder_ratio": ..., "log_age": ...}). It receives a dict of feature values
+     (NO target) and returns a dict mapping feature names to numeric values. Do NOT
+     include literal numeric coefficients or weights — a real least-squares fit against
+     training data determines those automatically. Your job is choosing WHICH transforms
+     and interactions matter, a real scientific judgment call, not guessing their weights.
+     You may use `math` and `statistics`. No imports, no I/O, no data lookups.
 
 Hard rules:
-  - Do NOT return a constant. A hypothesis that ignores the features is worthless.
-  - Do NOT hard-code these specific rows; encode a RULE.
+  - Do NOT return a constant feature that ignores the row's inputs — it carries no signal.
+  - Do NOT hard-code these specific rows; encode a generalizable transform.
   - The code must faithfully implement the claim. If they disagree, you fail verification.
 
 Return ONLY JSON: {"hypotheses": [{"claim": "...", "predict_code": "..."}, ...]}"""
@@ -201,8 +206,10 @@ CRITIC_SYSTEM = """You are a skeptical peer reviewer. Your job is to find the re
 
 Attack it on:
   - Overfitting: does it lean on noise or on quirks of the sample rather than real structure?
-  - Triviality/degeneracy: is it close to just predicting the majority class / the mean?
-  - Faithfulness: does predict_code actually implement the stated claim?
+  - Triviality/degeneracy: is the feature transform close to a trivial pass-through of one
+    raw column (no real transform, easily collapses to the majority class / the mean), or
+    does it capture real structure?
+  - Faithfulness: does the features() code actually implement the stated claim's transform?
   - Missed structure: is there an obvious feature or interaction it ignores?
 
 Be specific and concrete — name the weakness and the exact change that would test or fix it.
@@ -223,7 +230,9 @@ REFINER_SYSTEM = """You are a scientist revising a hypothesis in response to pee
 
 Produce an IMPROVED hypothesis that directly addresses the critique's most_likely_failure,
 while staying simple and general. Same output contract as the proposer: a plain-English
-claim plus faithful `predict(row: dict) -> value` code. No constants, no imports, no lookups.
+claim plus faithful `features(row: dict) -> dict[str, float]` code defining named engineered
+features (no literal coefficients — those are fit automatically). No constants, no imports,
+no lookups.
 
 Return ONLY JSON: {"claim": "...", "predict_code": "...", "what_changed": "..."}"""
 
@@ -299,9 +308,26 @@ def propose(data: Dataset, k: int = 4) -> list[Candidate]:
 
 
 def _train_metric(cand: Candidate, data: Dataset) -> float:
-    # cheap train-only score to give the critic a signal without touching the test set
-    train_as_test = Dataset(data.task_type, data.target, train=data.train, test=data.train)
-    return score_hypothesis(cand.predict_code, train_as_test).raw_metric
+    # Cheap signal for the critic, without ever touching the real held-out test
+    # set. Split train itself into a fit slice + a held-out-within-train
+    # validation slice, fit on the former, score against the latter — in-sample
+    # scoring (fit and score on the same rows) would be structurally
+    # near-guaranteed to look good regardless of hypothesis quality, since OLS
+    # minimizes error on its own fit data by construction. That would make the
+    # critic's overfitting-detection signal meaningless.
+    #
+    # Fixed slice (not shuffled here) — data.train's own order is already a
+    # one-time deterministic shuffle from load_concrete(seed=...), so this is
+    # stable across every call against the same Dataset object within a run.
+    n = len(data.train)
+    split = int(n * 0.8)
+    fit_slice = data.train[:split]
+    val_slice = data.train[split:]
+    if len(val_slice) < 2:   # too few rows to split meaningfully — fall back to in-sample
+        fit_slice = data.train
+        val_slice = data.train
+    internal_split = Dataset(data.task_type, data.target, train=fit_slice, test=val_slice)
+    return score_hypothesis(cand.predict_code, internal_split).raw_metric
 
 
 def critique(cand: Candidate, data: Dataset) -> tuple[str, str]:

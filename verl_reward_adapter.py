@@ -22,15 +22,19 @@ Intentional design notes
 
 extra_info schema (native dict — parquet nested struct, NOT a JSON string):
   {
-    "reward_eval_rows": list[dict],   # full rows (features + "strength") from train
-    "train_y":          list[float],  # ALL training-set strength values,
-                                      # used as the mean-baseline denominator in
-                                      # reward._regression_skill (fmean(train_y))
+    "reward_eval_rows": list[dict],   # full rows (features + "strength"), held out
+                                      # for THIS rollout — scored against the fit
+    "train_rows":       list[dict],   # full rows (features + "strength"), sampled
+                                      # from the train pool — used to fit the OLS
+                                      # coefficients (see reward._fit_ols). Full rows
+                                      # are needed (not just target values) because
+                                      # the reward now fits real coefficients against
+                                      # named features(), not just a mean baseline.
   }
 
-  Only target values (not full rows) are needed for train_y, keeping extra_info
-  compact: reward._regression_skill(preds, truth, train_y) uses train_y only to
-  compute statistics.fmean(train_y) for the SSE baseline denominator.
+  Both slices are subsamples of the same train pool (see verl_data_prep.py), not
+  the full training set — keeps parquet size bounded the same way reward_eval_rows
+  already did before this file needed a train slice too.
 """
 
 from __future__ import annotations
@@ -123,7 +127,7 @@ def compute_score(
         # list() converts numpy/pyarrow arrays to plain Python lists if pyarrow
         # deserialized the list<...> fields as arrays instead of lists.
         reward_eval_rows = list(ei["reward_eval_rows"])   # list[dict]  features + "strength"
-        train_y_values   = list(ei["train_y"])            # list[float] target values
+        train_rows       = list(ei["train_rows"])         # list[dict]  features + "strength"
     except Exception as exc:
         print(f"[reward-debug] extra_info unpacking failed: {exc}. solution_str[:300]="
               f"{repr(solution_str[:300])}", file=sys.stderr)
@@ -133,24 +137,18 @@ def compute_score(
     try:
         from reward import Dataset, score_hypothesis
 
-        # Build a minimal train list so Dataset.train_y returns the values that
-        # _regression_skill needs for its mean-baseline calc (only the target key
-        # is accessed; feature columns are never read from train rows).
-        fake_train = [{"strength": y} for y in train_y_values]
-
         dataset = Dataset(
             task_type="regression",
             target="strength",
-            train=fake_train,
+            train=train_rows,
             test=reward_eval_rows,
         )
-        # Strip harmless self-imports: math/statistics are already provided as
-        # globals inside reward.py's sandbox, but the sandbox's __import__ is
-        # absent from the whitelist, so a bare "import math" or "import statistics"
-        # line would otherwise raise and make compile_predict() silently return
-        # None. Other imports (e.g. numpy) are intentionally left to keep failing.
-        predict_code = re.sub(r'^\s*import\s+(math|statistics)\s*$', '', predict_code,
-                               flags=re.MULTILINE)
+        # NOTE: self-imports of math/statistics (bare or indented inside a
+        # function body) are stripped centrally in reward.compile_features(),
+        # not here — this file used to carry its own copy of that regex, but
+        # agents.py's direct score_hypothesis() calls never got the same fix,
+        # so a real-model rollout could still zero out silently on that path.
+        # Fixed at the source in reward.py so every caller gets it for free.
         result = score_hypothesis(predict_code, dataset)
         if result.total == 0.0:
             print(f"[reward-debug] score_hypothesis returned 0.0 without raising. "
@@ -195,24 +193,23 @@ if __name__ == "__main__":
             "strength": round(strength, 4),
         }
 
-    all_rows  = [_synth_row(rng) for _ in range(200)]
-    train_y   = [r["strength"] for r in all_rows[:160]]
-    eval_rows = all_rows[160:]
+    all_rows   = [_synth_row(rng) for _ in range(200)]
+    train_rows = all_rows[:160]    # full rows (features + target) — fits the OLS coefficients
+    eval_rows  = all_rows[160:]    # held out for scoring the fit
 
-    extra_info = {"reward_eval_rows": eval_rows, "train_y": train_y}
+    extra_info = {"reward_eval_rows": eval_rows, "train_rows": train_rows}
 
-    # ── Test 1: valid w/c-ratio hypothesis (should score > 0) ────────────────
+    # ── Test 1: valid w/c-ratio feature (should score > 0) ────────────────────
     valid_solution = json.dumps({
         "claim": "Strength decreases as the water-to-cementitious ratio rises.",
         "predict_code": (
-            "def predict(row):\n"
+            "def features(row):\n"
             "    cem = row['cement'] + row['blast_furnace_slag'] + row['fly_ash']\n"
-            "    wc  = row['water'] / (cem + 1e-6)\n"
-            "    return max(5.0, 80.0 - 100.0 * wc)"
+            "    return {'water_binder_ratio': row['water'] / (cem + 1e-6)}"
         ),
     })
     s1 = compute_score("concrete_swarm", valid_solution, "", extra_info)
-    print(f"[1] Valid w/c hypothesis         : {s1:.4f}  (expect > 0.0)")
+    print(f"[1] Valid w/c feature             : {s1:.4f}  (expect > 0.0)")
 
     # ── Test 2: malformed JSON ────────────────────────────────────────────────
     s2 = compute_score("concrete_swarm", "not json at all {{{{", "", extra_info)
@@ -225,34 +222,68 @@ if __name__ == "__main__":
     # ── Test 4: code that raises at runtime ───────────────────────────────────
     s4 = compute_score("concrete_swarm", json.dumps({
         "claim": "This will crash.",
-        "predict_code": "def predict(row):\n    return 1 / 0",
+        "predict_code": "def features(row):\n    return {'x': 1 / 0}",
     }), "", extra_info)
-    print(f"[4] Runtime-crashing predict_code : {s4:.4f}  (expect 0.0, must not raise)")
+    print(f"[4] Runtime-crashing features()   : {s4:.4f}  (expect 0.0, must not raise)")
 
     # ── Test 5: code wrapped in markdown fences ───────────────────────────────
     fenced_solution = json.dumps({
         "claim": "Age drives strength.",
         "predict_code": (
             "```python\n"
-            "def predict(row):\n"
-            "    return min(60.0, 10.0 * math.log(row['age'] + 1))\n"
+            "def features(row):\n"
+            "    return {'log_age': math.log(row['age'] + 1)}\n"
             "```"
         ),
     })
     s5 = compute_score("concrete_swarm", fenced_solution, "", extra_info)
-    print(f"[5] Fenced predict_code           : {s5:.4f}  (expect > 0.0, fence stripped)")
+    print(f"[5] Fenced features()             : {s5:.4f}  (expect > 0.0, fence stripped)")
 
     # ── Test 6: bare "import math" line (should be stripped, then compile) ────
     import_solution = json.dumps({
         "claim": "Strength grows with the square root of age.",
         "predict_code": (
             "import math\n"
-            "def predict(row):\n"
-            "    return min(60.0, 10.0 * math.sqrt(row['age']))"
+            "def features(row):\n"
+            "    return {'sqrt_age': math.sqrt(row['age'])}"
         ),
     })
     s6 = compute_score("concrete_swarm", import_solution, "", extra_info)
     print(f"[6] Bare 'import math' line       : {s6:.4f}  (expect > 0.0, import stripped)")
+
+    # ── Test 7: constant feature — reward-floor fix (Decision Log Fork 29) ────
+    # A syntactically valid, running hypothesis that carries zero signal must
+    # score ~0.0 total, not the old guaranteed 0.20 format+coverage floor.
+    constant_solution = json.dumps({
+        "claim": "This feature ignores the row entirely.",
+        "predict_code": "def features(row):\n    return {'k': 1.0}",
+    })
+    s7 = compute_score("concrete_swarm", constant_solution, "", extra_info)
+    print(f"[7] Constant feature (floor fix)  : {s7:.4f}  (expect 0.0, not the old 0.20 floor)")
+
+    # ── Test 8: good transform vs. deliberately bad transform ─────────────────
+    # Synthetic ground truth is 80 - 100*wc + 3*log(age+1) + noise (see _synth_row).
+    # A transform close to that structure should clearly beat one built from an
+    # unrelated column (superplasticizer plays no role in the synthetic formula).
+    good_solution = json.dumps({
+        "claim": "Strength is driven by water/binder ratio and log(age).",
+        "predict_code": (
+            "def features(row):\n"
+            "    cem = row['cement'] + row['blast_furnace_slag'] + row['fly_ash']\n"
+            "    return {\n"
+            "        'water_binder_ratio': row['water'] / (cem + 1e-6),\n"
+            "        'log_age': math.log(row['age'] + 1),\n"
+            "    }"
+        ),
+    })
+    bad_solution = json.dumps({
+        "claim": "Strength is driven by superplasticizer dosage alone.",
+        "predict_code": "def features(row):\n    return {'sp': row['superplasticizer']}",
+    })
+    s_good = compute_score("concrete_swarm", good_solution, "", extra_info)
+    s_bad  = compute_score("concrete_swarm", bad_solution, "", extra_info)
+    print(f"[8] Good transform (wc + log age) : {s_good:.4f}")
+    print(f"    Bad transform (sp only)       : {s_bad:.4f}  (expect good notably > bad)")
 
     print()
     assert s1 > 0.0,   "valid hypothesis must score > 0"
@@ -261,4 +292,6 @@ if __name__ == "__main__":
     assert s4 == 0.0,  "crashing code must score 0.0"
     assert s5 > 0.0,   "fenced code must be stripped and scored"
     assert s6 > 0.0,   "bare 'import math' line must be stripped and scored"
+    assert s7 == 0.0,  "constant feature must score 0.0, not the old 0.10+0.10 floor"
+    assert s_good > s_bad + 0.1, "a transform close to the true structure must beat an unrelated one"
     print("All assertions passed.")

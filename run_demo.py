@@ -65,9 +65,9 @@ def install_mock():
                         "compressive strength."
                     ),
                     "predict_code": (
-                        "def predict(row):\n"
+                        "def features(row):\n"
                         "    wc = row['water'] / (row['cement'] + 1e-6)\n"
-                        "    return max(5.0, 55.0 - 50.0 * wc)"
+                        "    return {'water_cement_ratio': wc}"
                     ),
                 },
                 {
@@ -76,8 +76,8 @@ def install_mock():
                         "the gain is approximately proportional to the logarithm of age in days."
                     ),
                     "predict_code": (
-                        "def predict(row):\n"
-                        "    return min(60.0, 10.0 * math.log(row['age'] + 1))"
+                        "def features(row):\n"
+                        "    return {'log_age': math.log(row['age'] + 1)}"
                     ),
                 },
                 {
@@ -86,8 +86,8 @@ def install_mock():
                         "higher aggregate volume increases the skeletal density of the mix."
                     ),
                     "predict_code": (
-                        "def predict(row):\n"
-                        "    return max(10.0, 70.0 - 0.03 * row['coarse_aggregate'])"
+                        "def features(row):\n"
+                        "    return {'coarse_aggregate': row['coarse_aggregate']}"
                     ),
                 },
             ]})
@@ -114,14 +114,17 @@ def install_mock():
                     "log-of-age term captures ongoing hydration gains over time."
                 ),
                 "predict_code": (
-                    "def predict(row):\n"
+                    "def features(row):\n"
                     "    wc = row['water'] / (row['cement'] + 1e-6)\n"
-                    "    age_factor = math.log(row['age'] + 1) / math.log(29)\n"
-                    "    return max(5.0, (55.0 - 45.0 * wc) * age_factor)"
+                    "    return {\n"
+                    "        'water_cement_ratio': wc,\n"
+                    "        'log_age': math.log(row['age'] + 1),\n"
+                    "    }"
                 ),
                 "what_changed": (
-                    "added a log(age+1) multiplier normalized to 28 days (standard curing), "
-                    "so early-age specimens are scaled down and mature ones are scaled up"
+                    "added a log(age+1) feature alongside water/cement ratio, so the least-"
+                    "squares fit can weigh both the mix-ratio effect and the ongoing-hydration "
+                    "effect jointly instead of relying on w/c ratio alone"
                 ),
             })
         if system == agents.VERIFIER_SYSTEM:

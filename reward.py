@@ -7,8 +7,14 @@ not by asking another LLM whether it "sounds right".
 
 A hypothesis is a pair:
     - natural_language : a human-readable claim (this is what you show in the demo)
-    - predict_code     : Python source defining `predict(row: dict) -> value`
-                         that operationalizes the claim so it can be checked.
+    - predict_code     : Python source defining `features(row: dict) -> dict[str, float]`
+                         that operationalizes the claim as one or more NAMED engineered
+                         features. The LLM proposes the functional form (which transforms
+                         matter); it does NOT guess numeric coefficients — those are fit
+                         by ordinary least squares against real training data below. LLMs
+                         are reasonably good at picking a plausible transform from a small
+                         sample of rows in a prompt; they are not reliable at hand-deriving
+                         multi-variable regression weights from that same sample.
 
 The reward is baseline-relative: you only earn credit for beating the trivial
 predictor (majority class / mean). That keeps the "it discovered something real"
@@ -37,14 +43,20 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
+import numpy as np
+
 # ----------------------------------------------------------------------------
 # Reward weights — tune these. skill (held-out performance vs baseline) dominates.
 # ----------------------------------------------------------------------------
-W_FORMAT = 0.10      # did it parse + define predict() + run at all
-W_COVERAGE = 0.10    # fraction of held-out rows it predicted without erroring
-W_SKILL = 0.80       # normalized improvement over the trivial baseline
-MIN_COVERAGE_FOR_SKILL = 0.80   # must predict >=80% of rows before skill counts
-PREDICT_TIMEOUT_SEC = 5         # wall-clock budget for predicting the whole set
+# format_ok/coverage are gates, not additive credit (see score_hypothesis): a
+# hypothesis must pass both, and not be degenerate, before it earns ANY reward —
+# but passing them earns nothing on its own. Only skill above baseline pays out.
+# W_SKILL=1.0 so total == skill exactly when the gate passes — the old 0.10/0.10
+# format/coverage weights that used to make the three sum to 1.0 are gone, so
+# nothing should hold skill's own weight below the full 0-1 scale anymore.
+W_SKILL = 1.0        # normalized improvement over the trivial baseline
+MIN_COVERAGE_FOR_SKILL = 0.80   # must predict >=80% of held-out rows before skill counts
+PREDICT_TIMEOUT_SEC = 5         # wall-clock budget for one features()-over-all-rows pass
 
 TaskType = Literal["classification", "regression"]
 
@@ -88,15 +100,46 @@ def _extract_code(raw: str) -> str:
     return raw.strip()
 
 
-def compile_predict(predict_code: str) -> Callable[[dict], Any] | None:
-    """Compile predict_code into a callable, or return None if it's not usable."""
+_SELF_IMPORT_RE = re.compile(
+    r'^[ \t]*import\s+(math|statistics)[ \t]*(#.*)?$', re.MULTILINE
+)
+
+
+def _strip_self_imports(code: str) -> str:
+    """Remove bare `import math` / `import statistics` lines, at ANY
+    indentation (including inside a function body) and with an optional
+    trailing comment.
+
+    math/statistics are already provided as globals inside the sandbox (see
+    _build_safe_globals) — __import__ is deliberately absent from the
+    sandbox's __builtins__, so any self-import of either name raises. Because
+    `import math` inside a function body only executes when that function is
+    CALLED (not when the module is exec'd to define it), a self-import at the
+    top of features()/predict() raises on every single row, not at compile
+    time — score_hypothesis then just sees an empty/near-empty design matrix
+    or all-None predictions and reports a plain 0.0, with nothing that looks
+    like an exception. Only these two names are stripped; any other import
+    (numpy, os, ...) is intentionally left to keep failing — see SECURITY NOTE.
+    """
+    return _SELF_IMPORT_RE.sub('', code)
+
+
+def compile_features(predict_code: str) -> Callable[[dict], dict] | None:
+    """Compile predict_code into a `features(row) -> dict[str, float]` callable,
+    or return None if it's not usable.
+
+    The field/parameter is still named predict_code (JSON contract + Candidate
+    dataclass field name are unchanged); the function IT DEFINES is `features`,
+    not `predict` — see the module docstring for why.
+    """
     code = _extract_code(predict_code)
+    code = _strip_self_imports(code)
     g = _build_safe_globals()
     try:
         exec(code, g)  # noqa: S102 — restricted namespace, see SECURITY NOTE
     except Exception:
         return None
-    fn = g.get("predict")
+    fn = g.get("features")
     return fn if callable(fn) else None
 
 
@@ -233,22 +276,110 @@ class Dataset:
         return [r[self.target] for r in self.test]
 
     def test_features(self) -> list[dict]:
-        # rows WITHOUT the target, so predict() can't cheat by reading the answer
+        # rows WITHOUT the target, so features() can't cheat by reading the answer
         return [{k: v for k, v in r.items() if k != self.target} for r in self.test]
+
+    def train_features(self) -> list[dict]:
+        # same, over train — used to build the design matrix for the OLS fit
+        return [{k: v for k, v in r.items() if k != self.target} for r in self.train]
+
+
+# ----------------------------------------------------------------------------
+# OLS fitting: turn named features into a linear model via least squares
+# ----------------------------------------------------------------------------
+def _fit_ols(train_feature_rows: list[Any], train_y: list[float]
+             ) -> tuple[list[str], np.ndarray] | None:
+    """Fit intercept + linear coefficients via ordinary least squares, mapping
+    named features (from features()) to the real training targets.
+
+    Returns (feature_key_order, coef_vector) — coef_vector[0] is the intercept,
+    followed by one coefficient per key in feature_key_order — or None if no
+    usable fit exists: too few valid rows, inconsistent feature keys across
+    rows, non-numeric feature/target values, or NaN/inf anywhere in the design
+    matrix, targets, or fitted coefficients.
+    """
+    paired = [(f, y) for f, y in zip(train_feature_rows, train_y)
+              if isinstance(f, dict) and f]
+    if len(paired) < 2:
+        return None
+
+    keys = sorted(paired[0][0].keys())
+    try:
+        X_rows = []
+        y_rows = []
+        for f, y in paired:
+            if sorted(f.keys()) != keys:
+                return None   # inconsistent feature keys across rows
+            X_rows.append([float(f[k]) for k in keys])
+            y_rows.append(float(y))
+        X = np.asarray(X_rows, dtype=float)
+        y_arr = np.asarray(y_rows, dtype=float)
+    except (TypeError, ValueError):
+        return None            # non-numeric feature or target value
+
+    if not (np.all(np.isfinite(X)) and np.all(np.isfinite(y_arr))):
+        return None            # NaN/inf in the design matrix or targets
+
+    X_design = np.column_stack([np.ones(len(X)), X])
+    try:
+        coefs, *_ = np.linalg.lstsq(X_design, y_arr, rcond=None)
+    except np.linalg.LinAlgError:
+        return None
+
+    if not np.all(np.isfinite(coefs)):
+        return None            # NaN/inf in the fit result
+
+    return keys, coefs
+
+
+def _apply_fit(feature_rows: list[Any], keys: list[str], coefs: np.ndarray) -> list[Any]:
+    """Apply a fitted intercept+coefficients to each row's feature dict.
+
+    None marks a row that can't be scored: features() failed/timed out on it
+    (feature_rows entry is None), it's missing one of `keys`, a value isn't
+    numeric, or the resulting prediction isn't finite.
+    """
+    preds: list[Any] = []
+    for f in feature_rows:
+        if not isinstance(f, dict):
+            preds.append(None)
+            continue
+        try:
+            values = [1.0] + [float(f[k]) for k in keys]
+        except (KeyError, TypeError, ValueError):
+            preds.append(None)
+            continue
+        pred = float(np.dot(coefs, values))
+        preds.append(pred if math.isfinite(pred) else None)
+    return preds
 
 
 def score_hypothesis(predict_code: str, data: Dataset) -> RewardBreakdown:
-    """Execute a hypothesis against held-out data and return a graded reward.
+    """Execute a hypothesis's features() against held-out data and return a
+    graded reward.
 
-    This is the authoritative verifier. The LLM 'Verifier' agent never sets this
-    number — reality does.
+    The LLM proposes which named features to compute; ordinary least squares
+    (see _fit_ols) fits the actual coefficients against data.train, and the
+    fitted linear model is applied to data.test to score skill. This is the
+    authoritative verifier. The LLM 'Verifier' agent never sets this number —
+    reality does.
     """
-    fn = compile_predict(predict_code)
+    fn = compile_features(predict_code)
     if fn is None:
         return RewardBreakdown(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False,
-                               note="did not compile / no predict()")
+                               note="did not compile / no features()")
 
-    preds = _run_predictions(fn, data.test_features())
+    train_feats = _run_predictions(fn, data.train_features())
+    fit = _fit_ols(train_feats, data.train_y)
+    if fit is None:
+        return RewardBreakdown(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False,
+                               note="feature fit failed (too few usable rows, "
+                                    "inconsistent/non-numeric feature keys, or "
+                                    "NaN/inf in the design matrix or fit result)")
+    keys, coefs = fit
+
+    test_feats = _run_predictions(fn, data.test_features())
+    preds = _apply_fit(test_feats, keys, coefs)
     truth = data.test_y
     covered = sum(1 for p in preds if p is not None)
     coverage = covered / len(truth) if truth else 0.0
@@ -257,7 +388,10 @@ def score_hypothesis(predict_code: str, data: Dataset) -> RewardBreakdown:
     degenerate = _is_degenerate(preds)
 
     if data.task_type == "classification":
-        raw = _accuracy(preds, truth)
+        # OLS gives a continuous score; threshold at 0.5 for the class decision
+        # (a linear probability model) rather than adding a second fitting method.
+        class_preds = [None if p is None else (1 if p >= 0.5 else 0) for p in preds]
+        raw = _accuracy(class_preds, truth)
         base = _majority_baseline_acc(data.train_y, truth)
         # normalized improvement over baseline, in [0, 1]
         skill = max(0.0, (raw - base) / (1.0 - base + 1e-9)) if raw >= base else 0.0
@@ -269,7 +403,12 @@ def score_hypothesis(predict_code: str, data: Dataset) -> RewardBreakdown:
     if coverage < MIN_COVERAGE_FOR_SKILL or degenerate:
         skill = 0.0
 
-    total = W_FORMAT * format_ok + W_COVERAGE * coverage + W_SKILL * skill
+    # format_ok/coverage are gates, not additive credit (see W_SKILL comment
+    # above): reward is earned only for skill above baseline, and only once the
+    # gate is passed — no partial credit just for compiling and running.
+    gate_ok = format_ok == 1.0 and coverage >= MIN_COVERAGE_FOR_SKILL and not degenerate
+    total = W_SKILL * skill if gate_ok else 0.0
+
     note = ""
     if degenerate:
         note = "constant predictor — no credit"

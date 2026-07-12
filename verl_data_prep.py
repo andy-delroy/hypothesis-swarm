@@ -11,7 +11,7 @@ Parquet schema per row (matches verl's RLHFDataset / GSM8k example format):
                                   {"role": "user",   "content": ...}]
                                 verl passes this to tokenizer.apply_chat_template()
   ground_truth : str          — "" (rule-based reward needs no gold answer)
-  extra_info   : str          — JSON: {"reward_eval_rows": [...], "train_y": [...]}
+  extra_info   : str          — JSON: {"reward_eval_rows": [...], "train_rows": [...]}
 
 Does NOT import agents.py (which lazily imports openai/Fireworks) or touch
 data.test (held-out; reserved for final evaluation only).
@@ -40,14 +40,17 @@ data you have never seen.
 
 Output BOTH:
   1. "claim": one plain-English sentence a domain expert could read and judge.
-  2. "predict_code": Python defining `predict(row: dict) -> float` that \
-operationalizes the claim. It receives a dict of feature values (NO target key) \
-and returns the predicted target as a float. You may use `math` and `statistics`. \
-No imports, no I/O, no data lookups.
+  2. "predict_code": Python defining `features(row: dict) -> dict[str, float]` that \
+operationalizes the claim as one or more NAMED engineered features. It receives a dict \
+of feature values (NO target key) and returns a dict mapping feature names to numeric \
+values. Do NOT include literal numeric coefficients or weights — a real least-squares \
+fit against training data determines those automatically. Your job is choosing WHICH \
+transforms and interactions matter, not guessing their weights. You may use `math` and \
+`statistics`. No imports, no I/O, no data lookups.
 
 Hard rules:
-  - Do NOT return a constant. A hypothesis that ignores the features scores zero.
-  - Do NOT hard-code these specific rows; encode a generalizable RULE.
+  - Do NOT return a constant feature that ignores the row's inputs — it scores zero.
+  - Do NOT hard-code these specific rows; encode a generalizable transform.
   - The code must faithfully implement the stated claim.
 
 Return ONLY valid JSON (no markdown, no fences):
@@ -90,6 +93,7 @@ def generate_examples(
     n_examples: int,
     prompt_sample_size: int = 12,
     reward_eval_size: int = 180,
+    fit_sample_size: int = 200,
     seed: int = 0,
 ) -> list[dict]:
     """
@@ -99,16 +103,19 @@ def generate_examples(
       * Sample prompt_sample_size rows from data.train for the user prompt
         (WITH the target column, so the model can see the output scale).
       * Sample reward_eval_size rows from data.train (independently reshuffled)
-        for the reward-eval slice passed to verl_reward_adapter.compute_score.
-        Overlap with the prompt sample is fine — both come from the train pool.
-      * train_y is the FULL training-set target-value list (not resampled per
-        example), giving _regression_skill a stable mean-baseline denominator
-        across all rollouts within a training run.
+        for the reward-eval slice passed to verl_reward_adapter.compute_score —
+        the held-out set the fitted linear model is scored against.
+      * Sample fit_sample_size rows from data.train (independently reshuffled)
+        for the "train_rows" slice — full feature+target rows the reward
+        adapter fits the OLS coefficients on (see reward._fit_ols). Sampled the
+        same way as reward_eval_rows rather than embedding the full train set
+        in every example, to keep parquet size bounded.
+      * Overlap between the three samples is fine — all come from the same
+        train pool; data.test is never touched by this script.
     """
     rng        = random.Random(seed)
     train_rows = data.train
     target     = data.target
-    train_y    = [r[target] for r in train_rows]   # stable; computed once
 
     feature_names = [k for k in train_rows[0].keys() if k != target]
 
@@ -116,6 +123,7 @@ def generate_examples(
     for _ in range(n_examples):
         prompt_rows = rng.sample(train_rows, min(prompt_sample_size, len(train_rows)))
         eval_rows   = rng.sample(train_rows, min(reward_eval_size,   len(train_rows)))
+        fit_rows    = rng.sample(train_rows, min(fit_sample_size,    len(train_rows)))
 
         schema      = _schema_str(data.task_type, target, feature_names, prompt_rows)
         user_text   = PROPOSER_TRAIN_USER.format(schema=schema, target=target)
@@ -133,7 +141,7 @@ def generate_examples(
             },
             "extra_info": {
                 "reward_eval_rows": eval_rows,
-                "train_y":          train_y,
+                "train_rows":       fit_rows,
             },
         })
 
@@ -182,7 +190,7 @@ def main() -> None:
     assert prompt_rt[1]["role"] == "user"
     ei_check = first["extra_info"]   # now a native dict from parquet nested struct
     assert len(ei_check["reward_eval_rows"]) == 180
-    assert len(ei_check["train_y"]) == len(data.train)
+    assert len(ei_check["train_rows"]) == 200
     rm_check = dict(first["reward_model"])   # pyarrow struct scalar → plain dict
     assert rm_check["style"] == "rule"
     assert rm_check["ground_truth"] == ""
@@ -204,8 +212,8 @@ def main() -> None:
         "reward_eval_rows_total": len(ei["reward_eval_rows"]),
         "reward_eval_rows[0]":    ei["reward_eval_rows"][0],
         "reward_eval_rows[1]":    ei["reward_eval_rows"][1],
-        "train_y_total":          len(ei["train_y"]),
-        "train_y[:5]":            ei["train_y"][:5],
+        "train_rows_total":       len(ei["train_rows"]),
+        "train_rows[0]":          ei["train_rows"][0],
     }
     print(json.dumps(summary, indent=2))
 
