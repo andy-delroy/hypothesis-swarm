@@ -161,4 +161,5 @@ echo ""
 
 exec vllm serve "${TARGET_DIR}" \
     --port "${SERVE_PORT}" \
-    --served-model-name "${SERVED_MODEL_NAME}"
+    --served-model-name "${SERVED_MODEL_NAME}" \
+    --gpu-memory-utilization 0.3
